@@ -1,0 +1,12 @@
+# Mobile Sentinel - Authorized Test Account Credentials Template
+# -------------------------------------------------------------
+# Instructions:
+# 1. Copy this file to your local configuration:
+#    cp config/card-vault-auth.example.yaml config/card-vault-auth.yaml
+# 2. Fill in the authorized test credentials for the target application.
+# 3. DO NOT commit your local config containing actual passwords or credentials.
+#    The local config file (e.g., config/*-auth.yaml) is excluded by .gitignore.
+
+auth:
+  email: "AUTHORIZED_TEST_ACCOUNT_EMAIL"
+  password: "AUTHORIZED_TEST_ACCOUNT_PASSWORD"

@@ -86,19 +86,46 @@ pip install -e .
 
 ### 1. Autonomous Security & QA Test
 
-To run the complete automated 10-step pipeline against an APK:
+To run the complete automated 10-step pipeline against an APK (1 APK, 1 package target, strict isolation):
 
 ```bash
 sentinel test "path/to/application.apk"
 ```
 
-### 2. Testing with Authorized Credentials
-
-When testing an application that requires authentication, provide an authorized test credentials YAML file:
+Or using Python module execution directly:
 
 ```bash
-sentinel test "path/to/application.apk" --auth-config "config/auth.yaml"
+python -m sentinel test "path/to/application.apk"
 ```
+
+#### Real Examples:
+```bash
+# Test Card Vault:
+sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk"
+
+# Test Aurum:
+sentinel test "D:\Aurum\build\app\outputs\flutter-apk\app-release.apk"
+```
+
+### 2. Available Options & Flags
+
+| Flag | Shorthand | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `--output` | `-o` | Output directory for generated reports | `reports` |
+| `--auth-config` | `-a` | Path to authorized test credentials YAML file | Auto-discovered from `config/` if present |
+| `--no-ui` | | Skip dynamic UI exploration (runs static analysis + runtime monitors only) | `False` |
+| `--no-network` | | Skip network toggle resilience test | `False` |
+| `--keep-installed` | | Retain the APK installed on device after run | `False` |
+
+### 3. Testing with Authorized Credentials
+
+When testing an application that requires authentication (like Card Vault), provide an authorized test credentials YAML file:
+
+```bash
+sentinel test "path/to/application.apk" --auth-config "config/card-vault-auth.yaml"
+```
+
+> **Note**: Mobile Sentinel automatically looks for `config/<app-name>-auth.yaml` if no `--auth-config` flag is passed!
 
 If no credentials configuration is provided, Mobile Sentinel will explore all accessible unauthenticated screens and transparently report authentication as `BLOCKED (No authorized test credentials supplied)`.
 

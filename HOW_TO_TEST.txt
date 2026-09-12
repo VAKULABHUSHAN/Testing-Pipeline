@@ -1,0 +1,129 @@
+================================================================================
+MOBILE SENTINEL — HOW TO TEST AN APPLICATION (STEP-BY-STEP GUIDE)
+================================================================================
+
+Mobile Sentinel automates the entire static security, runtime stability, and UI/QA
+testing pipeline for Android APKs (Flutter & Native) using a single command.
+
+--------------------------------------------------------------------------------
+1. PREREQUISITES
+--------------------------------------------------------------------------------
+
+Before running a test, ensure:
+1. Python 3.10+ is installed.
+2. ADB (Android Debug Bridge) is in your PATH.
+3. An Android emulator (e.g. emulator-5554) is running, or an Android device
+   is connected with USB debugging enabled.
+
+To verify your environment, run:
+    sentinel doctor
+    (or: python -m sentinel doctor)
+
+You should see green checkmarks for Python, ADB, and Device Availability.
+
+--------------------------------------------------------------------------------
+2. RUNNING A BASIC TEST
+--------------------------------------------------------------------------------
+
+To test an APK, run the `sentinel test` command followed by the path to the APK:
+
+    sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk"
+
+Or using Python directly:
+
+    python -m sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk"
+
+What happens automatically:
+  [1/10] APK validation & metadata extraction
+  [2/10] Device detection
+  [3/10] Clean package installation & post-install verification
+  [4/10] Application launch & foreground locking
+  [5/10] Static analysis (Manifest, Secret scan, Flutter audit, Network rules)
+  [6/10] Authentication detection
+  [7/10] Autonomous UI exploration (Screens, buttons, tabs, state graph)
+  [8/10] Runtime analysis (Logcat crash detection, ANR check, performance)
+  [9/10] Risk scoring engine
+  [10/10] Report & evidence generation (report.txt, report.json, screenshots)
+
+--------------------------------------------------------------------------------
+3. TESTING WITH LOGIN / AUTHENTICATED APPS
+--------------------------------------------------------------------------------
+
+If your app requires logging in:
+1. Create a YAML credentials file (e.g. `config/card-vault-auth.yaml`):
+
+    auth:
+      email: "your-test-account@example.com"
+      password: "YourPassword123!"
+
+2. Pass the credentials file using `--auth-config`:
+
+    sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk" --auth-config "config/card-vault-auth.yaml"
+
+   Note: Mobile Sentinel also auto-discovers `<app-name>-auth.yaml` if placed
+   inside the `config/` directory!
+
+--------------------------------------------------------------------------------
+4. USEFUL COMMAND OPTIONS & FLAGS
+--------------------------------------------------------------------------------
+
+--output / -o <directory>
+    Specify a custom folder for reports (default: `reports`).
+    Example:
+    sentinel test "path\to\app.apk" --output "my_reports"
+
+--auth-config / -a <path>
+    Path to authorized credentials YAML configuration.
+
+--no-ui
+    Skip dynamic UI exploration (runs static analysis and launch test only).
+    Example:
+    sentinel test "path\to\app.apk" --no-ui
+
+--no-network
+    Skip network toggle (Wi-Fi/cellular) resilience test.
+
+--keep-installed
+    Leave the APK installed on the device after the test completes.
+    Example:
+    sentinel test "path\to\app.apk" --keep-installed
+
+--------------------------------------------------------------------------------
+5. VIEWING TEST REPORTS & EVIDENCE
+--------------------------------------------------------------------------------
+
+All artifacts for a tested app are saved in `reports/<app_name>/`:
+
+reports/
+└── card_vault/
+    ├── report.txt          <-- Open this to read the complete executive audit
+    ├── report.json         <-- Machine-readable data with full state graph
+    ├── screenshots/        <-- PNG images taken of every discovered screen
+    │   ├── screen_01.png
+    │   ├── screen_02.png
+    │   └── ...
+    ├── logs/
+    │   └── logcat.log      <-- Filtered runtime logs and crash traces
+    └── metadata/
+        └── metadata.json   <-- Scan timestamps, package hash, SDK versions
+
+Open `reports/<app_name>/report.txt` in any text editor to see:
+- Overall Risk Rating (LOW / MEDIUM / HIGH / CRITICAL)
+- Security, Stability, Performance, UX, and Accessibility scores (0-100)
+- Number of screens discovered and tested
+- Destructive actions discovered and protected by safety policy
+- Detailed security findings with remediation guidance
+
+--------------------------------------------------------------------------------
+6. EXAMPLES
+--------------------------------------------------------------------------------
+
+Example 1: Test Card Vault (authenticated with auto-discovered config):
+    sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk"
+
+Example 2: Test Aurum:
+    sentinel test "D:\Aurum\build\app\outputs\flutter-apk\app-release.apk"
+
+Example 3: Quick static-only audit without UI clicks:
+    sentinel test "D:\card_vault\build\app\outputs\flutter-apk\app-release.apk" --no-ui
+================================================================================

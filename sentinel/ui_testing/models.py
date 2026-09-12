@@ -1,4 +1,4 @@
-"""Data models for UI testing, screen state graph, and interactive elements."""
+"""Data models for automated UI exploration, state graph, and interactive controls."""
 
 from __future__ import annotations
 
@@ -53,15 +53,17 @@ class UIElement:
 @dataclass
 class UIAction:
     """An action that was executed or scheduled for a UI element."""
-    action_type: str  # tap, type_text, scroll, back, wait
+    action_type: str  # tap, type_text, scroll, back, wait, form_test, dismiss_dialog
     target_element_id: Optional[str] = None
     target_description: str = ""
     target_bounds: Optional[Tuple[int, int, int, int]] = None
     input_text: Optional[str] = None
-    status: str = "PENDING"  # EXECUTED, DISCOVERED_NOT_EXECUTED, FAILED, SKIPPED
+    status: str = "PENDING"  # EXECUTED, DISCOVERED_NOT_EXECUTED, FAILED, SKIPPED, PASS
     reason: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     resulting_state_id: Optional[str] = None
+    from_screen_name: Optional[str] = None
+    to_screen_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -105,6 +107,11 @@ class ScreenState:
     is_onboarding_screen: bool = False
     is_authenticated: bool = False
     visit_count: int = 1
+    exploration_status: str = "DISCOVERED"  # DISCOVERED, EXPLORED, PARTIALLY_EXPLORED, BLOCKED
+    parent_state_id: Optional[str] = None
+    action_to_reach: Optional[str] = None
+    form_tests: List[Dict[str, Any]] = field(default_factory=list)
+    scroll_executed: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -116,6 +123,7 @@ class ScreenState:
             "visible_text": self.visible_text,
             "interactive_elements": [e.to_dict() for e in self.interactive_elements],
             "navigation_actions": [a.to_dict() for a in self.navigation_actions],
+            "form_tests": self.form_tests,
             "timestamp": self.timestamp,
             "accessibility_issues": [i.to_dict() for i in self.accessibility_issues],
             "ui_issues": [i.to_dict() for i in self.ui_issues],
@@ -124,6 +132,9 @@ class ScreenState:
             "is_onboarding_screen": self.is_onboarding_screen,
             "is_authenticated": self.is_authenticated,
             "visit_count": self.visit_count,
+            "exploration_status": self.exploration_status,
+            "parent_state_id": self.parent_state_id,
+            "action_to_reach": self.action_to_reach,
         }
 
 
@@ -133,12 +144,16 @@ class StateTransition:
     from_state_id: str
     to_state_id: str
     action: UIAction
+    from_screen_name: str = ""
+    to_screen_name: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "from_state_id": self.from_state_id,
             "to_state_id": self.to_state_id,
+            "from_screen_name": self.from_screen_name,
+            "to_screen_name": self.to_screen_name,
             "action": self.action.to_dict(),
             "timestamp": self.timestamp,
         }
@@ -159,9 +174,26 @@ class StateGraph:
                 self.initial_state_id = state.state_id
         else:
             self.states[state.state_id].visit_count += 1
+            if not self.states[state.state_id].screenshot_path and state.screenshot_path:
+                self.states[state.state_id].screenshot_path = state.screenshot_path
 
-    def add_transition(self, from_id: str, to_id: str, action: UIAction) -> None:
-        self.transitions.append(StateTransition(from_state_id=from_id, to_state_id=to_id, action=action))
+    def add_transition(
+        self,
+        from_id: str,
+        to_id: str,
+        action: UIAction,
+        from_screen_name: str = "",
+        to_screen_name: str = "",
+    ) -> None:
+        self.transitions.append(
+            StateTransition(
+                from_state_id=from_id,
+                to_state_id=to_id,
+                action=action,
+                from_screen_name=from_screen_name,
+                to_screen_name=to_screen_name,
+            )
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -178,13 +210,27 @@ class StateGraph:
 class ExplorationResult:
     """Consolidated outcome of the UI exploration engine."""
     graph: StateGraph = field(default_factory=StateGraph)
-    auth_status: str = "SKIPPED"  # COMPLETED, BLOCKED, SKIPPED, FAILED
+    auth_status: str = "SKIPPED"  # SUCCESS, COMPLETED, BLOCKED, SKIPPED, FAILED
     auth_reason: str = ""
+    authenticated_exploration: str = "NOT_STARTED"  # COMPLETED, PARTIAL, NOT_STARTED, BLOCKED
     screens_discovered: int = 0
+    screens_explored: int = 0
     screens_fully_tested: int = 0
     screens_blocked: int = 0
-    actions_executed: int = 0
+
+    def __post_init__(self) -> None:
+        if self.screens_fully_tested and not self.screens_explored:
+            self.screens_explored = self.screens_fully_tested
+        elif self.screens_explored and not self.screens_fully_tested:
+            self.screens_fully_tested = self.screens_explored
+    actions_discovered: int = 0
+    actions_tested: int = 0
+    screen_coverage_pct: float = 0.0
+    action_coverage_pct: float = 0.0
     destructive_actions_discovered: int = 0
+    navigation_tests: List[Dict[str, str]] = field(default_factory=list)
+    form_tests_results: List[Dict[str, Any]] = field(default_factory=list)
+    skipped_blocked_actions: List[Dict[str, str]] = field(default_factory=list)
     ui_issues: List[UIIssue] = field(default_factory=list)
     accessibility_issues: List[UIIssue] = field(default_factory=list)
     duration_seconds: float = 0.0
@@ -193,11 +239,19 @@ class ExplorationResult:
         return {
             "auth_status": self.auth_status,
             "auth_reason": self.auth_reason,
+            "authenticated_exploration": self.authenticated_exploration,
             "screens_discovered": self.screens_discovered,
+            "screens_explored": self.screens_explored,
             "screens_fully_tested": self.screens_fully_tested,
             "screens_blocked": self.screens_blocked,
-            "actions_executed": self.actions_executed,
+            "actions_discovered": self.actions_discovered,
+            "actions_tested": self.actions_tested,
+            "screen_coverage_pct": self.screen_coverage_pct,
+            "action_coverage_pct": self.action_coverage_pct,
             "destructive_actions_discovered": self.destructive_actions_discovered,
+            "navigation_tests": self.navigation_tests,
+            "form_tests_results": self.form_tests_results,
+            "skipped_blocked_actions": self.skipped_blocked_actions,
             "ui_issues": [i.to_dict() for i in self.ui_issues],
             "accessibility_issues": [i.to_dict() for i in self.accessibility_issues],
             "duration_seconds": self.duration_seconds,

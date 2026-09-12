@@ -138,6 +138,14 @@ def test_cmd(apk_path: str, output: str, auth_config: Optional[str], no_ui: bool
     def _progress(step: int, total: int, desc: str, status: str) -> None:
         if status == "RUNNING":
             return
+
+        if status.startswith("DETAIL:"):
+            click.echo(f"[{step}/{total}] {desc}...")
+            for detail_line in status[7:].split(";"):
+                if detail_line.strip():
+                    click.echo(f"       {detail_line.strip()}")
+            return
+
         if status == "OK":
             stat_str = f"{Fore.GREEN}✓{Style.RESET_ALL}"
         elif status == "WARN":
@@ -169,6 +177,8 @@ def test_cmd(apk_path: str, output: str, auth_config: Optional[str], no_ui: bool
         click.echo(f"\n{Fore.RED}[ERROR] APK Validation Failed:{Style.RESET_ALL} {e}\n")
         sys.exit(1)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         click.echo(f"\n{Fore.RED}[ERROR] Scan execution failed:{Style.RESET_ALL} {e}\n")
         sys.exit(1)
 

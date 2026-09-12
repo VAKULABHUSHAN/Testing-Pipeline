@@ -102,3 +102,90 @@ def test_state_graph_cycle_prevention():
 
     assert len(graph.states) == 2
     assert graph.states["s1"].visit_count == 2
+
+
+def test_auth_verify_login_success():
+    mgr = AuthManager()
+    login_state = ScreenState(
+        state_id="login_1",
+        screen_name="LoginScreen",
+        package="com.example.card_vault",
+        is_login_screen=True,
+    )
+    auth_state = ScreenState(
+        state_id="dash_1",
+        screen_name="DashboardScreen",
+        package="com.example.card_vault",
+        visible_text=["Card Vault", "Dashboard", "Quick Actions", "Categories"],
+        interactive_elements=[
+            UIElement(element_id="btn1", element_type="button", text="Add Card", clickable=True),
+        ],
+    )
+    success, reason = mgr.verify_login_success(auth_state, login_state, "com.example.card_vault")
+    assert success is True
+    assert "Authenticated successfully" in reason
+
+
+def test_auth_verify_login_failure_on_error():
+    mgr = AuthManager()
+    login_state = ScreenState(
+        state_id="login_1",
+        screen_name="LoginScreen",
+        package="com.example.card_vault",
+        is_login_screen=True,
+    )
+    err_state = ScreenState(
+        state_id="login_err",
+        screen_name="LoginScreen",
+        package="com.example.card_vault",
+        visible_text=["Invalid email or password", "Login"],
+        is_login_screen=True,
+    )
+    success, reason = mgr.verify_login_success(err_state, login_state, "com.example.card_vault")
+    assert success is False
+    assert "Authentication error detected" in reason or "remained on login screen" in reason
+
+
+def test_auth_verify_login_failure_on_package_mismatch():
+    mgr = AuthManager()
+    login_state = ScreenState(
+        state_id="login_1",
+        screen_name="LoginScreen",
+        package="com.example.card_vault",
+    )
+    other_app = ScreenState(
+        state_id="other_1",
+        screen_name="LauncherScreen",
+        package="com.google.android.apps.nexuslauncher",
+    )
+    success, reason = mgr.verify_login_success(other_app, login_state, "com.example.card_vault")
+    assert success is False
+    assert "package changed" in reason.lower()
+
+
+def test_exploration_coverage_metrics():
+    from sentinel.ui_testing.models import ExplorationResult
+    graph = StateGraph()
+    s1 = ScreenState(state_id="s1", screen_name="LoginScreen", package="com.test", exploration_status="EXPLORED")
+    s2 = ScreenState(state_id="s2", screen_name="DashboardScreen", package="com.test", exploration_status="EXPLORED")
+    s3 = ScreenState(state_id="s3", screen_name="CategoriesScreen", package="com.test", exploration_status="DISCOVERED")
+    graph.add_state(s1)
+    graph.add_state(s2)
+    graph.add_state(s3)
+
+    res = ExplorationResult(
+        graph=graph,
+        auth_status="SUCCESS",
+        screens_discovered=3,
+        screens_fully_tested=2,
+        actions_discovered=10,
+        actions_tested=8,
+        screen_coverage_pct=66.7,
+        action_coverage_pct=80.0,
+    )
+    d = res.to_dict()
+    assert d["auth_status"] == "SUCCESS"
+    assert d["screen_coverage_pct"] == 66.7
+    assert d["action_coverage_pct"] == 80.0
+    assert d["screens_discovered"] == 3
+    assert d["screens_fully_tested"] == 2

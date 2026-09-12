@@ -236,17 +236,48 @@ class HierarchyParser:
         if is_registration:
             return "RegistrationScreen"
 
+        combined_text = " ".join(visible_text).lower()
+
+        # Dialogs / Bottom Sheets detection
+        if "tour" in combined_text and ("welcome to" in combined_text or "start tour" in combined_text or "skip tour" in combined_text):
+            return "TourWelcomeDialog"
+        if "biometric" in combined_text and ("fingerprint" in combined_text or "face unlock" in combined_text or "not now" in combined_text):
+            return "BiometricPromptDialog"
+        if "visiting card image" in combined_text or "choose from gallery" in combined_text:
+            return "ImagePickerBottomSheet"
+
+        # Form Screens detection
+        if any(w in combined_text for w in ("add business card", "add new card", "new card", "edit card", "card form")) or (
+            any("save" in t.lower() or "submit" in t.lower() for t in visible_text) and any(k in combined_text for k in ("company", "phone", "email"))
+        ):
+            return "CardFormScreen"
+
+        # Tab Screens detection
+        if "categories" in combined_text and ("all categories" in combined_text or "add category" in combined_text or "work" in combined_text or "personal" in combined_text):
+            return "CategoriesTab"
+        if "favorites" in combined_text and ("no favorites" in combined_text or "starred" in combined_text or "favorite contacts" in combined_text):
+            return "FavoritesTab"
+        if "insights" in combined_text and ("analytics" in combined_text or "distribution" in combined_text or "statistics" in combined_text or "overview" in combined_text):
+            return "InsightsTab"
+        if "profile" in combined_text and ("settings" in combined_text or "account" in combined_text or "preferences" in combined_text or "dark mode" in combined_text or "security" in combined_text):
+            return "ProfileScreen"
+        if ("card vault" in combined_text or "dashboard" in combined_text) and ("quick actions" in combined_text or "total cards" in combined_text or "digital directory" in combined_text):
+            return "DashboardScreen"
+        if "search cards" in combined_text or "filter directory" in combined_text:
+            return "CardsListingScreen"
+
         # Check for prominent known section titles in text
         text_lower = [t.lower() for t in visible_text]
         for t, orig in zip(text_lower, visible_text):
-            for candidate in ("dashboard", "home", "profile", "settings", "cards", "categories", "faq", "guidelines", "about", "search", "details"):
+            for candidate in ("dashboard", "home", "profile", "settings", "cards", "categories", "favorites", "insights", "faq", "guidelines", "about", "search", "details"):
                 if candidate == t or (candidate in t and len(t) < 25):
                     return f"{candidate.capitalize()}Screen"
 
         if visible_text:
-            first_clean = re.sub(r"[^a-zA-Z0-9]", "", visible_text[0])
-            if first_clean and len(first_clean) < 20:
-                return f"{first_clean.capitalize()}Screen"
+            for v in visible_text:
+                first_clean = re.sub(r"[^a-zA-Z0-9]", "", v)
+                if first_clean and len(first_clean) < 25 and first_clean.lower() not in ("back", "close", "cancel", "done", "skip"):
+                    return f"{first_clean.capitalize()}Screen"
 
         if activity:
             clean_act = activity.split(".")[-1].replace("Activity", "")

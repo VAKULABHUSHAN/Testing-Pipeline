@@ -221,23 +221,27 @@ class ScanPipeline:
 
             # [4/10] Application launch
             if device and installed:
-                _notify(4, 10, "Application launch", "RUNNING")
+                _notify(4, 10, "Launch", "RUNNING")
                 self.adb.clear_logcat(device=device)
                 ok, _ = self.adb.launch_package(
                     apk_meta.package_name,
                     activity_name=apk_meta.launcher_activity,
                     device=device,
                 )
-                time.sleep(2)
-                if self.adb.is_running(apk_meta.package_name, device=device):
-                    launched = True
+                # Poll for package process to settle during initial cold start
+                for _ in range(6):
+                    time.sleep(1)
+                    if self.adb.is_running(apk_meta.package_name, device=device):
+                        launched = True
+                        break
+                if launched:
                     runtime_summary["Launch"] = "PASS"
-                    _notify(4, 10, "Application launch", "OK")
+                    _notify(4, 10, "Launch", "OK")
                 else:
                     runtime_summary["Launch"] = "FAIL"
-                    _notify(4, 10, "Application launch", "WARN")
+                    _notify(4, 10, "Launch", "WARN")
             else:
-                _notify(4, 10, "Application launch", "SKIPPED")
+                _notify(4, 10, "Launch", "SKIPPED")
 
             # [5/10] Static analysis
             _notify(5, 10, "Static analysis", "RUNNING")
@@ -333,7 +337,7 @@ class ScanPipeline:
                 for p in sorted(ss_dir.glob("*.png")):
                     screenshots.append(str(p))
 
-                _notify(7, 10, "UI exploration", "OK")
+                _notify(7, 10, "Application discovery", f"DETAIL:{exploration_res.screens_discovered} screens discovered" if exploration_res else "OK")
             else:
                 _notify(7, 10, "UI exploration", "SKIPPED")
 
@@ -387,7 +391,7 @@ class ScanPipeline:
                 if mem_info:
                     perf_stats["memory_summary"] = ", ".join(f"{k}: {v}" for k, v in list(mem_info.items())[:3])
 
-                _notify(8, 10, "Runtime analysis", "OK")
+                _notify(8, 10, "Full exploration", f"DETAIL:{exploration_res.screens_fully_tested} screens explored;{exploration_res.actions_tested} actions tested" if exploration_res else "OK")
             else:
                 _notify(8, 10, "Runtime analysis", "SKIPPED")
 

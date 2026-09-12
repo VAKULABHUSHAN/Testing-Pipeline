@@ -10,16 +10,34 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from sentinel.core.exceptions import RuntimeDeviceError
+from sentinel.core.exceptions import RuntimeDeviceError, TargetPackageViolation
 from sentinel.core.logging import logger
 
 
 class ADBController:
     """Manages low-level ADB operations safely and deterministically."""
 
-    def __init__(self, adb_path: Optional[str] = None, timeout_seconds: int = 45):
+    def __init__(
+        self,
+        adb_path: Optional[str] = None,
+        timeout_seconds: int = 45,
+        target_package: Optional[str] = None,
+    ):
         self.adb_path = adb_path or self._resolve_adb_path()
         self.timeout_seconds = timeout_seconds
+        self.target_package = target_package
+
+    def set_target_package(self, package_name: str) -> None:
+        """Permanently locks operations to the specified target application package."""
+        self.target_package = package_name
+
+    def validate_target_package(self, package_name: str) -> None:
+        """Guards against any ADB operation targeting unauthorized packages."""
+        if self.target_package and package_name != self.target_package:
+            raise TargetPackageViolation(
+                f"Attempted operation on package '{package_name}'. "
+                f"Allowed package: '{self.target_package}'"
+            )
 
     def _resolve_adb_path(self) -> str:
         found = shutil.which("adb")
@@ -135,11 +153,48 @@ class ADBController:
         device: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Uninstalls a package from the target device."""
+        self.validate_target_package(package_name)
         code, out, err = self._execute(["uninstall", package_name], device=device, timeout=30)
         output = f"{out}\n{err}".strip()
         if code == 0 and "Success" in output:
             return True, "Success"
         return False, output
+
+    def is_package_installed(
+        self,
+        package_name: str,
+        device: Optional[str] = None,
+    ) -> bool:
+        """Verifies if the specified package is installed on the target device."""
+        self.validate_target_package(package_name)
+        code, out, _ = self.run_shell(["pm", "path", package_name], device=device, timeout=10)
+        return code == 0 and "package:" in out
+
+    def get_foreground_package(self, device: Optional[str] = None) -> Optional[str]:
+        """Identifies the application package currently active in the foreground."""
+        import re
+
+        # 1. Try dumpsys activity activities (fast and accurate for top resumed activity)
+        code, out, _ = self.run_shell(["dumpsys", "activity", "activities"], device=device, timeout=5)
+        if code == 0 and out:
+            m = re.search(r"(?:topResumedActivity|mResumedActivity)=ActivityRecord\{[0-9a-fA-F]+\s+u\d+\s+([a-zA-Z0-9._]+)/", out)
+            if m:
+                return m.group(1)
+            m = re.search(r"(?:topResumedActivity|mResumedActivity).*?\s+([a-zA-Z0-9._]+)/", out)
+            if m:
+                return m.group(1)
+
+        # 2. Fallback to dumpsys window
+        code, out, _ = self.run_shell(["dumpsys", "window"], device=device, timeout=5)
+        if code == 0 and out:
+            m = re.search(r"mCurrentFocus=Window\{[0-9a-fA-F]+\s+u\d+\s+([a-zA-Z0-9._]+)/", out)
+            if m:
+                return m.group(1)
+            m = re.search(r"mFocusedApp=ActivityRecord\{[0-9a-fA-F]+\s+u\d+\s+([a-zA-Z0-9._]+)/", out)
+            if m:
+                return m.group(1)
+
+        return None
 
     def launch_package(
         self,
@@ -148,6 +203,7 @@ class ADBController:
         device: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Launches an application by activity or monkey dispatch."""
+        self.validate_target_package(package_name)
         if activity_name:
             target = f"{package_name}/{activity_name}"
             code, out, err = self.run_shell(["am", "start", "-n", target], device=device, timeout=20)
@@ -167,11 +223,13 @@ class ADBController:
 
     def force_stop(self, package_name: str, device: Optional[str] = None) -> bool:
         """Force-stops the target package."""
+        self.validate_target_package(package_name)
         code, _, _ = self.run_shell(["am", "force-stop", package_name], device=device, timeout=10)
         return code == 0
 
     def get_pid(self, package_name: str, device: Optional[str] = None) -> Optional[int]:
         """Retrieves process ID for the target package if running."""
+        self.validate_target_package(package_name)
         code, out, _ = self.run_shell(["pidof", package_name], device=device, timeout=5)
         if code == 0 and out.strip():
             first = out.strip().split()[0]
@@ -190,6 +248,7 @@ class ADBController:
 
     def is_running(self, package_name: str, device: Optional[str] = None) -> bool:
         """Checks whether the application process is alive."""
+        self.validate_target_package(package_name)
         return self.get_pid(package_name, device=device) is not None
 
     def clear_logcat(self, device: Optional[str] = None) -> bool:
@@ -279,6 +338,7 @@ class ADBController:
 
     def get_memory_info(self, package_name: str, device: Optional[str] = None) -> Dict[str, str]:
         """Captures process memory statistics via dumpsys meminfo."""
+        self.validate_target_package(package_name)
         code, out, _ = self.run_shell(["dumpsys", "meminfo", package_name], device=device, timeout=15)
         info = {}
         if code == 0 and out:

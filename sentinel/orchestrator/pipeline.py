@@ -134,6 +134,8 @@ class ScanPipeline:
         _notify(1, 10, "APK validation", "RUNNING")
         validated_apk = self.extractor.validate_apk_file(apk_path)
         apk_meta = self.extractor.extract_metadata(validated_apk)
+        # Lock runtime operations to this target package strictly
+        self.adb.set_target_package(apk_meta.package_name)
         _notify(1, 10, "APK validation", "OK")
 
         # Determine normalized report directory name (per requirement 12)
@@ -201,6 +203,13 @@ class ScanPipeline:
                 _notify(3, 10, "Installation", "RUNNING")
                 ok, inst_msg = self.adb.install_apk(str(validated_apk), device=device)
                 if ok:
+                    # Verify installed package matches APK package (Requirement 9)
+                    if not self.adb.is_package_installed(apk_meta.package_name, device=device):
+                        runtime_summary["Installation"] = "FAIL"
+                        _notify(3, 10, "Installation", "FAIL")
+                        raise APKValidationError(
+                            f"Installed package verification failed: '{apk_meta.package_name}' not found on device after install."
+                        )
                     installed = True
                     runtime_summary["Installation"] = "PASS"
                     _notify(3, 10, "Installation", "OK")

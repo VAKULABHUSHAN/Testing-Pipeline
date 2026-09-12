@@ -77,7 +77,7 @@ def analyze_cmd(apk_path: str) -> None:
 
 
 from sentinel.analyzers.apk.extractor import APKExtractor
-from sentinel.core.exceptions import APKValidationError
+from sentinel.core.exceptions import APKValidationError, TargetPackageViolation
 from sentinel.orchestrator.pipeline import ScanPipeline
 from sentinel.reporting.json_report import JsonReportGenerator
 from sentinel.reporting.text_report import TextReportGenerator
@@ -126,7 +126,14 @@ def test_cmd(apk_path: str, output: str, auth_config: Optional[str], no_ui: bool
     click.echo("---------------")
     click.echo(f"Application: {app_label}")
     click.echo(f"Package: {pkg_name}")
-    click.echo(f"Device: {target_device}\n")
+    # Auto-discover authorized credentials if available in config/
+    if not auth_config:
+        import re
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", app_label).strip("-").lower() if app_label else ""
+        candidate = Path("config") / f"{slug}-auth.yaml"
+        if candidate.exists():
+            auth_config = str(candidate)
+            click.echo(f"Loaded credentials from: {candidate}\n")
 
     def _progress(step: int, total: int, desc: str, status: str) -> None:
         if status == "RUNNING":
@@ -155,6 +162,9 @@ def test_cmd(apk_path: str, output: str, auth_config: Optional[str], no_ui: bool
             keep_installed=keep_installed,
             progress_cb=_progress,
         )
+    except TargetPackageViolation as e:
+        click.echo(f"\n{Fore.RED}[TARGET PACKAGE VIOLATION]{Style.RESET_ALL} {e}\n")
+        sys.exit(1)
     except APKValidationError as e:
         click.echo(f"\n{Fore.RED}[ERROR] APK Validation Failed:{Style.RESET_ALL} {e}\n")
         sys.exit(1)

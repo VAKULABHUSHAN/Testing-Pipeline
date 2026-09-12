@@ -127,10 +127,22 @@ class RuntimeMonitor:
         crash_blocks: List[str] = []
         for i, line in enumerate(filtered_lines):
             if any(p.search(line) for p in CRASH_PATTERNS):
-                # Capture surrounding 5 lines for context
+                # Capture surrounding lines for context
                 context_start = max(0, i - 2)
-                context_end = min(len(filtered_lines), i + 6)
+                context_end = min(len(filtered_lines), i + 10)
                 snippet = "\n".join(filtered_lines[context_start:context_end])
+
+                # Verify crash belongs to target package if process info is present
+                proc_match = re.search(r"Process:\s*([a-zA-Z0-9._]+)", snippet)
+                if proc_match:
+                    crashed_pkg = proc_match.group(1)
+                    if crashed_pkg != self.package_name:
+                        # Exclude foreign package crash
+                        continue
+                elif self.package_name and self.package_name not in snippet and "flutter" not in snippet.lower():
+                    # Unrelated crash not matching target package
+                    continue
+
                 crash_blocks.append(snippet)
 
         if crash_blocks:
@@ -154,9 +166,12 @@ class RuntimeMonitor:
             )
 
         # 3. ANR Detection
-        for line in filtered_lines:
+        for i, line in enumerate(filtered_lines):
             if any(p.search(line) for p in ANR_PATTERNS):
-                if self.package_name in line or "Input dispatching" in line:
+                context_start = max(0, i - 2)
+                context_end = min(len(filtered_lines), i + 6)
+                ctx = "\n".join(filtered_lines[context_start:context_end])
+                if self.package_name in ctx:
                     result.has_anr = True
                     result.anr_details.append(line.strip())
 

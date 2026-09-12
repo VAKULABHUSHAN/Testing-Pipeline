@@ -57,8 +57,14 @@ class HierarchyParser:
             return "text"
         return "container"
 
-    def parse(self, xml_content: str, screenshot_path: Optional[str] = None, activity: Optional[str] = None) -> Optional[ScreenState]:
-        """Parses UI XML into a complete ScreenState."""
+    def parse(
+        self,
+        xml_content: str,
+        screenshot_path: Optional[str] = None,
+        activity: Optional[str] = None,
+        target_package: Optional[str] = None,
+    ) -> Optional[ScreenState]:
+        """Parses UI XML into a complete ScreenState, strictly filtered to target_package if specified."""
         if not xml_content or "<hierarchy" not in xml_content:
             return None
 
@@ -72,18 +78,29 @@ class HierarchyParser:
             except Exception:
                 return None
 
+        # If target_package is specified, verify target package nodes exist in hierarchy
+        if target_package:
+            has_target = any((node.get("package") or "") == target_package for node in root.iter("node"))
+            if not has_target:
+                # Target application is not in the foreground
+                return None
+
         elements: List[UIElement] = []
         visible_text: List[str] = []
         interactive_elements: List[UIElement] = []
         accessibility_issues: List[UIIssue] = []
         ui_issues: List[UIIssue] = []
 
-        package_name = ""
+        package_name = target_package or ""
         elem_counter = 0
 
         # Traverse all nodes
         for node in root.iter("node"):
             pkg = node.get("package") or ""
+            # Exclude elements belonging to other packages (launchers, other apps, system UI)
+            if target_package and pkg != target_package:
+                continue
+
             if pkg and not package_name:
                 package_name = pkg
 

@@ -37,3 +37,9 @@ class SafetyViolationError(SentinelError):
 class ConfigError(SentinelError):
     """Raised when configuration parsing or validation fails."""
     pass
+
+
+class TargetPackageViolation(SentinelError):
+    """Raised when an operation attempts to target an unauthorized application package."""
+    pass
+

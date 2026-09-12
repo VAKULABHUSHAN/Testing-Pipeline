@@ -44,10 +44,53 @@ class UIExplorer:
         self.hierarchy_parser = hierarchy_parser or HierarchyParser(self.safety_classifier)
         self.auth_manager = auth_manager or AuthManager(adb=self.adb)
 
+        self.adb.set_target_package(self.package_name)
         self.max_depth = max_depth
         self.max_actions_per_screen = max_actions_per_screen
         self.max_total_actions = max_total_actions
         self.global_timeout_seconds = global_timeout_seconds
+
+    def _verify_foreground(self, device: str) -> bool:
+        """Verifies that the target package is currently in the foreground.
+
+        If focus was lost to another package, attempts to restore focus to target_package.
+        Returns True if target package is active in foreground, False otherwise.
+        """
+        fg_pkg = self.adb.get_foreground_package(device=device)
+        if fg_pkg == self.package_name:
+            return True
+
+        logger.warning(
+            f"[Isolation Guard] Focus lost: Foreground package is '{fg_pkg}', expected target '{self.package_name}'"
+        )
+
+        # Check if the target application is still running
+        if not self.adb.is_running(self.package_name, device=device):
+            logger.error(
+                f"[Isolation Guard] Target application '{self.package_name}' is not running (APPLICATION CRASHED or EXITED)"
+            )
+            return False
+
+        # If a modal permission dialog is obscuring the app, dismiss it via Back
+        if fg_pkg and "permissioncontroller" in fg_pkg:
+            logger.info(f"[Isolation Guard] Dismissing system dialog to refocus '{self.package_name}'...")
+            self.adb.send_key(4, device=device)
+            time.sleep(1.0)
+            if self.adb.get_foreground_package(device=device) == self.package_name:
+                return True
+
+        # Attempt to bring target package back to foreground
+        logger.info(f"[Isolation Guard] Attempting to refocus target package '{self.package_name}'...")
+        self.adb.launch_package(self.package_name, activity_name=self.launcher_activity, device=device)
+        time.sleep(1.5)
+
+        fg_after = self.adb.get_foreground_package(device=device)
+        if fg_after == self.package_name:
+            logger.info(f"[Isolation Guard] Successfully restored foreground focus to '{self.package_name}'")
+            return True
+
+        logger.warning(f"[Isolation Guard] Failed to restore focus. Foreground package remains '{fg_after}'")
+        return False
 
     def _capture_current_state(
         self,
@@ -55,13 +98,26 @@ class UIExplorer:
         screenshot_dir: Path,
         screen_index: int,
     ) -> Optional[ScreenState]:
-        """Captures screenshot and hierarchy of current screen, returning ScreenState."""
+        """Captures screenshot and hierarchy of current screen strictly scoped to target_package."""
+        # 1. Verify foreground is target package
+        if not self._verify_foreground(device):
+            return None
+
+        # 2. Dump hierarchy
         xml_dump = self.adb.dump_ui_hierarchy(device=device)
         if not xml_dump:
             time.sleep(1)
+            if not self._verify_foreground(device):
+                return None
             xml_dump = self.adb.dump_ui_hierarchy(device=device)
             if not xml_dump:
                 return None
+
+        # 3. Verify foreground package before saving screenshot
+        fg_pkg = self.adb.get_foreground_package(device=device)
+        if fg_pkg != self.package_name:
+            logger.warning(f"[Isolation Guard] Skipping screenshot: foreground '{fg_pkg}' != '{self.package_name}'")
+            return None
 
         ss_path = screenshot_dir / f"screen_{screen_index:02d}.png"
         self.adb.take_screenshot(ss_path, device=device)
@@ -71,15 +127,9 @@ class UIExplorer:
             xml_content=xml_dump,
             screenshot_path=ss_str,
             activity=self.launcher_activity,
+            target_package=self.package_name,
         )
         return state
-
-    def _ensure_foreground(self, device: str) -> None:
-        """Brings the target application back to foreground if it was minimized or exited."""
-        code, out, _ = self.adb.run_shell(["dumpsys", "window", "windows"], device=device)
-        if self.package_name not in out or not self.adb.is_running(self.package_name, device=device):
-            self.adb.launch_package(self.package_name, activity_name=self.launcher_activity, device=device)
-            time.sleep(2)
 
     def explore(
         self,
@@ -128,7 +178,10 @@ class UIExplorer:
                 logger.warning(f"UI exploration reached global timeout of {self.global_timeout_seconds}s")
                 break
 
-            self._ensure_foreground(device)
+            if not self._verify_foreground(device):
+                if not self.adb.is_running(self.package_name, device=device):
+                    logger.error("[Isolation Guard] Target application crashed or terminated. Concluding exploration.")
+                    break
 
             # Check for Onboarding Screen
             if current_state.is_onboarding_screen:
@@ -297,6 +350,12 @@ class UIExplorer:
                     status="EXECUTED",
                 )
 
+                if not self._verify_foreground(device):
+                    logger.warning(
+                        f"[Isolation Guard] Cannot tap '{elem.display_name}': Target package '{self.package_name}' is not in foreground."
+                    )
+                    break
+
                 self.adb.run_shell(["input", "tap", str(elem.center[0]), str(elem.center[1])], device=device)
                 time.sleep(1.5)
 
@@ -335,7 +394,14 @@ class UIExplorer:
                 total_actions += 1
                 time.sleep(1.2)
 
-                self._ensure_foreground(device)
+                # Verify target app didn't exit to launcher or another app
+                fg_after_back = self.adb.get_foreground_package(device=device)
+                if fg_after_back != self.package_name:
+                    logger.info(
+                        f"[Isolation Guard] Back navigation exited target application (current foreground: '{fg_after_back}'). Ending exploration."
+                    )
+                    break
+
                 screen_counter += 1
                 back_state = self._capture_current_state(device, screenshot_dir, screen_counter)
                 if back_state:
@@ -343,6 +409,8 @@ class UIExplorer:
                     current_state.navigation_actions.append(back_action)
                     graph.add_transition(current_state.state_id, back_state.state_id, back_action)
                     current_state = back_state
+                else:
+                    break
             elif not candidate_found:
                 # Top-level screen exhausted
                 break

@@ -78,12 +78,13 @@ class HierarchyParser:
             except Exception:
                 return None
 
-        # If target_package is specified, verify target package nodes exist in hierarchy
-        if target_package:
-            has_target = any((node.get("package") or "") == target_package for node in root.iter("node"))
-            if not has_target:
-                # Target application is not in the foreground
-                return None
+        # System overlay / launcher packages to exclude
+        system_packages = {
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3",
+            "com.android.systemui",
+            "com.google.android.permissioncontroller",
+        }
 
         elements: List[UIElement] = []
         visible_text: List[str] = []
@@ -97,8 +98,8 @@ class HierarchyParser:
         # Traverse all nodes
         for node in root.iter("node"):
             pkg = node.get("package") or ""
-            # Exclude elements belonging to other packages (launchers, other apps, system UI)
-            if target_package and pkg != target_package:
+            # Exclude elements belonging to launcher/system overlay packages if target_package is active
+            if target_package and pkg in system_packages and pkg != target_package:
                 continue
 
             if pkg and not package_name:
@@ -289,8 +290,12 @@ class HierarchyParser:
     def _compute_state_id(self, screen_name: str, interactive_elements: List[UIElement]) -> str:
         """Computes a deterministic hash fingerprint representing this unique screen layout."""
         sig_elements = []
-        for e in sorted(interactive_elements, key=lambda x: (x.bounds[1], x.bounds[0])):
-            sig = f"{e.element_type}:{e.display_name}:{e.bounds[0]},{e.bounds[1]}"
+        # Sort elements by normalized grid row then column then display_name
+        for e in sorted(interactive_elements, key=lambda x: (x.bounds[1] // 40, x.bounds[0] // 40, x.display_name)):
+            grid_x = e.bounds[0] // 40
+            grid_y = e.bounds[1] // 40
+            res_or_name = e.resource_id or e.content_desc or e.text or e.display_name
+            sig = f"{e.element_type}:{res_or_name}:{grid_x},{grid_y}"
             sig_elements.append(sig)
         raw_key = f"{screen_name}|" + "|".join(sig_elements)
         h = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:12]

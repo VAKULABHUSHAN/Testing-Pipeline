@@ -205,9 +205,20 @@ class ADBController:
         """Launches an application by activity or monkey dispatch."""
         self.validate_target_package(package_name)
         if activity_name:
-            target = f"{package_name}/{activity_name}"
+            if "/" in activity_name:
+                target = activity_name
+            elif activity_name.startswith("."):
+                target = f"{package_name}/{activity_name}"
+            elif activity_name.startswith(package_name):
+                short_act = activity_name[len(package_name):]
+                if not short_act.startswith("."):
+                    short_act = f".{short_act}"
+                target = f"{package_name}/{short_act}"
+            else:
+                target = f"{package_name}/.{activity_name.split('.')[-1]}"
+
             code, out, err = self.run_shell(["am", "start", "-n", target], device=device, timeout=20)
-            if code == 0 and "Error" not in out:
+            if code == 0 and "Error" not in out and "Activity class" not in out:
                 return True, out
             logger.warning(f"am start failed for {target}, falling back to monkey: {out}")
 

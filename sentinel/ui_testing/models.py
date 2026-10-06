@@ -112,6 +112,49 @@ class ScreenState:
     action_to_reach: Optional[str] = None
     form_tests: List[Dict[str, Any]] = field(default_factory=list)
     scroll_executed: bool = False
+    pending_action_ids: List[str] = field(default_factory=list)
+    explored_action_ids: List[str] = field(default_factory=list)
+    failed_action_ids: List[str] = field(default_factory=list)
+    blocked_action_ids: List[str] = field(default_factory=list)
+    action_candidate_map: Dict[str, Tuple[UIElement, str]] = field(default_factory=dict)
+
+    def add_pending_action(self, action_key: str, element: UIElement, action_type: str = "tap") -> bool:
+        """Adds an action candidate to the state pending action frontier if not already tracked."""
+        if (
+            action_key not in self.pending_action_ids
+            and action_key not in self.explored_action_ids
+            and action_key not in self.failed_action_ids
+            and action_key not in self.blocked_action_ids
+        ):
+            self.pending_action_ids.append(action_key)
+            self.action_candidate_map[action_key] = (element, action_type)
+            return True
+        return False
+
+    def mark_action_executed(self, action_key: str) -> None:
+        """Marks an action as executed on this state."""
+        if action_key in self.pending_action_ids:
+            self.pending_action_ids.remove(action_key)
+        if action_key not in self.explored_action_ids:
+            self.explored_action_ids.append(action_key)
+
+    def mark_action_failed(self, action_key: str) -> None:
+        """Marks an action as failed on this state."""
+        if action_key in self.pending_action_ids:
+            self.pending_action_ids.remove(action_key)
+        if action_key not in self.failed_action_ids:
+            self.failed_action_ids.append(action_key)
+
+    def mark_action_blocked(self, action_key: str) -> None:
+        """Marks an action as blocked or excluded by safety policy on this state."""
+        if action_key in self.pending_action_ids:
+            self.pending_action_ids.remove(action_key)
+        if action_key not in self.blocked_action_ids:
+            self.blocked_action_ids.append(action_key)
+
+    def is_fully_explored(self) -> bool:
+        """Determines if all discoverable actions on this state have been processed."""
+        return len(self.pending_action_ids) == 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -124,6 +167,10 @@ class ScreenState:
             "interactive_elements": [e.to_dict() for e in self.interactive_elements],
             "navigation_actions": [a.to_dict() for a in self.navigation_actions],
             "form_tests": self.form_tests,
+            "pending_action_ids": self.pending_action_ids,
+            "explored_action_ids": self.explored_action_ids,
+            "failed_action_ids": self.failed_action_ids,
+            "blocked_action_ids": self.blocked_action_ids,
             "timestamp": self.timestamp,
             "accessibility_issues": [i.to_dict() for i in self.accessibility_issues],
             "ui_issues": [i.to_dict() for i in self.ui_issues],
